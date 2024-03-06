@@ -32,7 +32,9 @@ class AsyncRequests(ABC):
         return parsed
 
     async def _get_base(
-        self, url: str, parser: Callable[..., Coroutine[Any, Any, T]]
+        self,
+        url: str,
+        parser: ParserFunc[T],
     ) -> T:
         async with self.session.get(url) as response:
             if response.status != 200:
