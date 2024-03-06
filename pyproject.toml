@@ -1,0 +1,13 @@
+[build-system]
+requires = ['flit_core >=3.2,<4']
+build-backend = 'flit_core.buildapi'
+
+[project]
+name = 'async_requests'
+authors = [{name = 'Samuel Thelwall', email = 'samuel.thelwall@fideres.com'}]
+description = 'Limit async concurrency on HTTP requests using locks.'
+dependencies = ['aiohttp']
+version = '0.1'
+
+[project.optional-dependencies]
+test = ['pytest']
