@@ -71,7 +71,7 @@ class AsyncRequestsLimiterBase(AsyncRequests):
 
     _instance = None
 
-    def __new__(cls, *args, **kwargs):
+    def __new__(cls, *args, **kwargs) -> "AsyncRequestsLimiterBase":
         if cls._instance is None:
             cls._instance = super().__new__(cls)
         return cls._instance
@@ -80,7 +80,7 @@ class AsyncRequestsLimiterBase(AsyncRequests):
         self.self = self
         self._limiter = ConcurrencyLimiter(max_concurrency)
 
-    async def post(self, url: str, json: dict, parser: ParserFunc[T]) -> str:
+    async def post(self, url: str, json: dict, parser: ParserFunc[T]) -> T:
         return await self._limiter._run_function(
             super()._post_base,
             *(
