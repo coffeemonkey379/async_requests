@@ -1,10 +1,9 @@
 import asyncio
-from abc import ABC, abstractmethod
 from typing import Any, Callable, Coroutine, TypeVar
 
 import aiohttp
 
-T = TypeVar("T")
+T = TypeVar("T", bound=Any)
 
 ParserFunc = Callable[[aiohttp.ClientResponse], Coroutine[Any, Any, T]]
 
@@ -13,76 +12,92 @@ class RequestException(Exception):
     pass
 
 
-class AsyncRequests(ABC):
-
-    @property
-    @abstractmethod
-    def session(self) -> aiohttp.ClientSession:
-        pass
-
-    async def _post_base(
-        self,
-        url: str,
-        json: dict,
-        parser: ParserFunc[T],
-    ) -> T:
-        async with self.session.post(url, json=json) as response:
-            parsed = await parser(response)
-
-        return parsed
-
-    async def _get_base(
-        self,
-        url: str,
-        parser: ParserFunc[T],
-    ) -> T:
-        async with self.session.get(url) as response:
-            if response.status != 200:
-                raise RequestException()
-
-            parsed = await parser(response)
-        return parsed
-
-
 class ConcurrencyLimiter:
-
     def __init__(self, max_concurrency: int):
         self.self = self
         self._lock = asyncio.Lock()
-        self.max_concurrency = max_concurrency
+        self._max_concurrency = max_concurrency
         self._concurrent_requests = 0
 
-    async def _run_function(
+    @property
+    def max_concurrency(self) -> int:
+        return self._max_concurrency
+
+    async def set_max_concurrency(self, value: int) -> None:
+        if not isinstance(value, int):
+            raise ValueError("must be an int!")
+        elif value == self.max_concurrency:
+            return None
+        async with self._lock:
+            self._max_concurrency = value
+
+    async def run_function(
         self, func: Callable[..., Coroutine[Any, Any, T]], *args, **kwargs
     ) -> T:
         while True:
             async with self._lock:
-                if self.self._concurrent_requests < self.max_concurrency:
-                    self.self._concurrent_requests += 1
+                if self._concurrent_requests < self.max_concurrency:
+                    self._concurrent_requests += 1
                     break
             await asyncio.sleep(0.01)
         res = await func(*args, **kwargs)
         async with self._lock:
-            self.self._concurrent_requests -= 1
+            self._concurrent_requests -= 1
         return res
 
 
-class AsyncRequestsLimiterBase(AsyncRequests):
+class Singleton(type):
+    _instances: dict[type, type] = {}
+
+    def __call__(cls, *args, **kwargs):
+        if cls not in cls._instances:
+            cls._instances[cls] = super(Singleton, cls).__call__(*args, **kwargs)
+        return cls._instances[cls]
+
+
+class Limiter(metaclass=Singleton):
+    """Limit the concurrency of async requests.
+
+
+
+    Attributes:
+       max_concurrency (int): Max number of concurrent requests.
+       session (aiohttp.ClientSession): Async request interface.
+    """
 
     _instance = None
+    _limiter = ConcurrencyLimiter(0)
+    _session: aiohttp.ClientSession
 
-    def __new__(cls, *args, **kwargs) -> "AsyncRequestsLimiterBase":
-        if cls._instance is None:
-            cls._instance = super().__new__(cls)
-        return cls._instance
+    @classmethod
+    async def build(
+        cls, session: aiohttp.ClientSession, max_concurrency: int
+    ) -> "Limiter":
+        """Initialise instance based on max concurrent requests.
 
-    def __init__(self, max_concurrency: int):
-        self.self = self
-        self._limiter = ConcurrencyLimiter(max_concurrency)
+        Args:
+            session (aiohttp.ClientSession): Execute requests with.
+            max_concurrency (int): Max number of concurrent requests.
+        """
+        self = cls()
+        self._session = session
+        await self._limiter.set_max_concurrency(max_concurrency)
+
+        return self
 
     async def post(self, url: str, json: dict, parser: ParserFunc[T]) -> T:
-        return await self._limiter._run_function(
-            super()._post_base,
+        """Post request - executed when live concurrent requests are below max_concurrency.
+
+        Args:
+            url (str): Url to send request.
+            json (dict): Payload to send with request.
+            parser (ParserFunc[T]): Coroutine to parse the request response.
+
+        Returns:
+            T: Result of parser.
+        """
+        return await self._limiter.run_function(
+            self._post_base,
             *(
                 url,
                 json,
@@ -91,10 +106,29 @@ class AsyncRequestsLimiterBase(AsyncRequests):
         )
 
     async def get(self, url: str, parser: ParserFunc[T]) -> T:
-        return await self._limiter._run_function(
-            super()._get_base,
+        """Get request - executed when live concurrent requests are below max_concurrency.
+
+        Args:
+            url (str): Url to send request.
+            parser (ParserFunc[T]): Coroutine to parse the request response.
+
+        Returns:
+            T: Result of parser.
+        """
+        return await self._limiter.run_function(
+            self._get_base,
             *(
                 url,
                 parser,
             ),
         )
+
+    async def _post_base(self, url: str, json: dict, parser: ParserFunc[T]) -> T:
+        async with self._session.post(url, json=json) as response:
+            parsed = await parser(response)
+        return parsed
+
+    async def _get_base(self, url: str, parser: ParserFunc[T]) -> T:
+        async with self._session.get(url) as response:
+            parsed = await parser(response)
+        return parsed
