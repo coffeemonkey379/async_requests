@@ -2,8 +2,6 @@
 
 Limit number of async requests being made concurrently. 
 
-Limiter is a singleton.
-
 ## Installation
 
 ``` shell
