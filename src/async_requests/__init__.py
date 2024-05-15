@@ -8,12 +8,19 @@ T = TypeVar("T", bound=Any)
 ParserFunc = Callable[[aiohttp.ClientResponse], Coroutine[Any, Any, T]]
 
 
-class RequestException(Exception):
-    pass
-
-
 class ConcurrencyLimiter:
+    """Limits concurrency of functions called.
+
+    Attributes:
+        max_concurrency (int): Max number of concurrent requests.
+    """
+
     def __init__(self, max_concurrency: int):
+        """Creates instance.
+
+        Args:
+            max_concurrency (int): Max concurrent executions of callables passed.
+        """
         self.self = self
         self._lock = asyncio.Lock()
         self._max_concurrency = max_concurrency
@@ -31,9 +38,17 @@ class ConcurrencyLimiter:
         async with self._lock:
             self._max_concurrency = value
 
-    async def run_function(
+    async def __call__(
         self, func: Callable[..., Coroutine[Any, Any, T]], *args, **kwargs
     ) -> T:
+        """Limit concurrency of callable passed.
+
+        Args:
+            func (Callable[..., Coroutine[Any, Any, T]]): Function to limit concurrent calls to.
+
+        Returns:
+            T: Result of coroutine.
+        """
         while True:
             async with self._lock:
                 if self._concurrent_requests < self.max_concurrency:
@@ -47,7 +62,13 @@ class ConcurrencyLimiter:
 
 
 class Singleton(type):
-    _instances: dict[type, type] = {}
+    """Singleton metaclass, limits instances of class to one.
+
+    Returns:
+        _instances (dict[type, type]):  Type of subclass and instance of subclass.
+    """
+
+    _instances: dict[type["Singleton"], "Singleton"] = {}
 
     def __call__(cls, *args, **kwargs):
         if cls not in cls._instances:
@@ -57,8 +78,6 @@ class Singleton(type):
 
 class Limiter(metaclass=Singleton):
     """Limit the concurrency of async requests.
-
-
 
     Attributes:
        max_concurrency (int): Max number of concurrent requests.
@@ -76,7 +95,7 @@ class Limiter(metaclass=Singleton):
         """Initialise instance based on max concurrent requests.
 
         Args:
-            session (aiohttp.ClientSession): Execute requests with.
+            session (aiohttp.ClientSession): Async request interface.
             max_concurrency (int): Max number of concurrent requests.
         """
         self = cls()
@@ -96,7 +115,7 @@ class Limiter(metaclass=Singleton):
         Returns:
             T: Result of parser.
         """
-        return await self._limiter.run_function(
+        return await self._limiter(
             self._post_base,
             *(
                 url,
@@ -115,7 +134,7 @@ class Limiter(metaclass=Singleton):
         Returns:
             T: Result of parser.
         """
-        return await self._limiter.run_function(
+        return await self._limiter(
             self._get_base,
             *(
                 url,
