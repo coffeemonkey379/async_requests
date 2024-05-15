@@ -36,20 +36,19 @@ async def parse(response: aiohttp.ClientResponse) -> str:
 
 
 @timer()
-async def make_request(url: str) -> None:
-    session = aiohttp.ClientSession()
-    # Singleton - always returns same instance!
-    limiter = await async_requests.Limiter.build(session=session, max_concurrency=2)
+async def make_request(limiter: async_requests.Limiter, url: str) -> None:
     _ = await limiter.get(url, parser=parse)
-    await session.close()
     return None
 
 
 async def test() -> None:
+    session = aiohttp.ClientSession()
+    limiter = async_requests.Limiter(session=session, max_concurrency=2)
     url = "https://www.scrapethissite.com/pages/simple/"
     async with asyncio.TaskGroup() as tg:
         for _ in range(1, 5):
-            tg.create_task(make_request(url))
+            tg.create_task(make_request(limiter, url))
+    await session.close()
 
 
 asyncio.run(test())

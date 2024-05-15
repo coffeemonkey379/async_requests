@@ -1,6 +1,8 @@
 # async_requests
 
-A class which limits the number of concurrent async requests being made.
+Limit number of async requests being made concurrently. 
+
+Limiter is a singleton.
 
 ## Installation
 
@@ -45,7 +47,6 @@ def timer():
     return wrapper
 
 
-# Sleep for 5 seconds in parser function
 async def parse(response: aiohttp.ClientResponse) -> str:
     await asyncio.sleep(5)
     text = await response.text()
@@ -53,25 +54,22 @@ async def parse(response: aiohttp.ClientResponse) -> str:
 
 
 @timer()
-async def make_request(url: str) -> None:
-    session = aiohttp.ClientSession()
-    # Singleton - always returns same instance!
-    limiter = await async_requests.Limiter.build(session=session, max_concurrency=2)
+async def make_request(limiter: async_requests.Limiter, url: str) -> None:
     _ = await limiter.get(url, parser=parse)
-    await session.close()
     return None
 
 
 async def test() -> None:
+    session = aiohttp.ClientSession()
+    limiter = async_requests.Limiter(session=session, max_concurrency=2)
     url = "https://www.scrapethissite.com/pages/simple/"
     async with asyncio.TaskGroup() as tg:
         for _ in range(1, 5):
-            tg.create_task(make_request(url))
+            tg.create_task(make_request(limiter, url))
+    await session.close()
 
 
 asyncio.run(test())
-
-
 
 ```
 
@@ -87,43 +85,5 @@ Finished 1. at 18:15:30
 Finished 2. at 18:15:30
 Finished 3. at 18:15:35
 Finished 4. at 18:15:35
-
-```
-
-## Multiple Instance
-
-If you require multiple instances of Limiter i.e. to cap requests to different URLs, you should just inherit.
-
-``` Python
-
-import asyncio
-
-import aiohttp
-import async_requests
-
-
-class LimiterOne(async_requests.Limiter):
-    pass
-
-
-class LimiterTwo(async_requests.Limiter):
-    pass
-
-
-async def inheritance_test():
-    session = aiohttp.ClientSession()
-    # Singleton - always returns same instance!
-    limiter_one_a = await LimiterOne.build(session=session, max_concurrency=2)
-    limiter_one_b = await LimiterOne.build(session=session, max_concurrency=2)
-
-    limiter_two_a = await LimiterTwo.build(session=session, max_concurrency=2)
-    limiter_two_b = await LimiterTwo.build(session=session, max_concurrency=2)
-    assert limiter_one_a is limiter_one_b
-    assert limiter_two_a is limiter_two_b
-    assert limiter_one_a is not limiter_two_a
-    assert limiter_one_b is not limiter_two_b
-
-
-asyncio.run(test())
 
 ```
